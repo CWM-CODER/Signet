@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Signer Interface (AI)</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+    <div class="main-container">
+        <div style="padding: 20px; text-align: center;">
+            <h1 style="margin:0; color: #00d4ff;">Your Hand Signs</h1>
+            <button id="modeToggle" class="mode-btn">
+                Mode: Spelling (Letters)
+            </button>
+        </div>
+
+        <div class="camera-section">
+            <div class="video-wrapper">
+                <video id="video" autoplay playsinline muted></video>
+                <canvas id="output_canvas"></canvas>
+            </div>
+
+            <div class="hud">
+                <div class="hud-item">
+                    <span>Detected</span>
+                    <h1 id="predictedLetter">--</h1>
+                </div>
+                <div class="hud-item grow">
+                    <span>Sentence Buffer</span>
+                    <h1 id="wordBuffer" class="buffer-text">Buffer: 0 / 10</h1>
+                </div>
+            </div>
+            
+            <div class="instructions">
+                <strong>Spelling:</strong> Hold hand steady. Space: Relax 2s.<br>
+                <strong>Speaking:</strong> Perform signs naturally.
+            </div>
+        </div>
+
+        <div class="chat-section">
+            <h3 style="color:#888; text-transform:uppercase; font-size:12px; margin-bottom:10px;">Conversation Log</h3>
+            <div id="chat-box">
+                <div class="waiting-msg">Waiting for conversation...</div>
+            </div>
+        </div>
+
+        <div class="debug-section" style="display:none;">
+            <h3>Backend Data</h3>
+            <pre id="json-display">Connecting...</pre>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
