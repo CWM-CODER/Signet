@@ -1,0 +1,11 @@
+flask
+flask-cors
+opencv-python
+mediapipe
+torch
+torchvision
+numpy<2
+pandas
+scikit-learn
+supabase
+python-dotenv
