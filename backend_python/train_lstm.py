@@ -41,7 +41,10 @@ for action in actions:
             sequences.append(window)
             labels.append(label_map[action])
 
-X = np.array(sequences)
+X = np.array(sequences, dtype=np.float32)
+y = np.array(labels)
+
+X = np.array(sequences, dtype=np.float32)
 y = np.array(labels)
 
 if len(X) == 0:
@@ -49,6 +52,11 @@ if len(X) == 0:
     sys.exit(1)
 
 print(f"Data Loaded. Shape: {X.shape}")
+
+assert X.ndim == 3, f"Expected 3D array, got {X.ndim} dimensions"
+assert X.shape[1] == 30, f"Expected 30 frames, got {X.shape[1]}"
+assert X.shape[2] == 225, f"Expected 225 features, got {X.shape[2]}"
+
 
 class_weights = class_weight.compute_class_weight(
     class_weight='balanced',
@@ -74,7 +82,13 @@ def augment_data(inputs):
     return inputs
 
 class LSTMModel(nn.Module):
-    def __init__(self, input_size=150, hidden_size=64, num_layers=1, num_classes=len(actions)):
+    def __init__(
+        self,
+        input_size=225,
+        hidden_size=64,
+        num_layers=1,
+        num_classes=len(actions)
+    ):
         super(LSTMModel, self).__init__()
 
         self.feature_extract = nn.Sequential(
@@ -83,7 +97,14 @@ class LSTMModel(nn.Module):
             nn.ReLU(),
             nn.Dropout(0.3)
         )
-        self.lstm = nn.LSTM(128, hidden_size, num_layers, batch_first=True)
+
+        self.lstm = nn.LSTM(
+            128,
+            hidden_size,
+            num_layers,
+            batch_first=True
+        )
+
         self.dropout = nn.Dropout(0.4)
         self.fc1 = nn.Linear(hidden_size, 32)
         self.fc2 = nn.Linear(32, num_classes)
@@ -91,11 +112,15 @@ class LSTMModel(nn.Module):
 
     def forward(self, x):
         x = self.feature_extract(x)
+
         out, _ = self.lstm(x)
+
         out = out[:, -1, :]
         out = self.dropout(out)
+
         out = self.relu(self.fc1(out))
         out = self.fc2(out)
+
         return out
 
 model = LSTMModel().to(DEVICE)
