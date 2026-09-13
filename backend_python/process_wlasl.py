@@ -50,35 +50,78 @@ print(f"✅ Found {len(id_to_word)} videos for {found_words_count} words.")
 
 def get_relative_keypoints(results):
     """
-    Converts raw screen coordinates to body-relative coordinates.
-    1. Finds center of shoulders.
-    2. Subtracts center from all points.
-    3. Divides by shoulder width to handle distance.
-    4. Ignores Z-axis (Webcams are bad at depth).
-    """
-   
-    pose = np.array([[res.x, res.y] for res in results.pose_landmarks.landmark]) if results.pose_landmarks else np.zeros((33, 2))
-    lh = np.array([[res.x, res.y] for res in results.left_hand_landmarks.landmark]) if results.left_hand_landmarks else np.zeros((21, 2))
-    rh = np.array([[res.x, res.y] for res in results.right_hand_landmarks.landmark]) if results.right_hand_landmarks else np.zeros((21, 2))
+    Extracts 3D pose and hand landmarks.
 
+    Pose:
+        33 landmarks × 3 coordinates = 99 features
+
+    Left hand:
+        21 landmarks × 3 coordinates = 63 features
+
+    Right hand:
+        21 landmarks × 3 coordinates = 63 features
+
+    Total:
+        99 + 63 + 63 = 225 features per frame
+    """
+
+    pose = np.zeros((33, 3), dtype=np.float32)
+    lh = np.zeros((21, 3), dtype=np.float32)
+    rh = np.zeros((21, 3), dtype=np.float32)
+
+    pose_detected = False
+    left_hand_detected = False
+    right_hand_detected = False
+
+    # Extract 3D pose landmarks
     if results.pose_landmarks:
+        pose_detected = True
+
+        for i, lm in enumerate(results.pose_landmarks.landmark):
+            pose[i] = [lm.x, lm.y, lm.z]
+
+    # Extract 3D left-hand landmarks
+    if results.left_hand_landmarks:
+        left_hand_detected = True
+
+        for i, lm in enumerate(results.left_hand_landmarks.landmark):
+            lh[i] = [lm.x, lm.y, lm.z]
+
+    # Extract 3D right-hand landmarks
+    if results.right_hand_landmarks:
+        right_hand_detected = True
+
+        for i, lm in enumerate(results.right_hand_landmarks.landmark):
+            rh[i] = [lm.x, lm.y, lm.z]
+
+    # Normalize relative to shoulder center and shoulder width
+    if pose_detected:
         left_shoulder = pose[11]
         right_shoulder = pose[12]
-        center_x = (left_shoulder[0] + right_shoulder[0]) / 2
-        center_y = (left_shoulder[1] + right_shoulder[1]) / 2
-        
-        # Calculate scale (width of shoulders)
-        width = np.linalg.norm(left_shoulder - right_shoulder)
-        if width == 0: width = 1.0 # Prevent div/0
-        
-        pose = (pose - [center_x, center_y]) / width
-        
-        # Normalize Hands (relative to body center)
-        if results.left_hand_landmarks: lh = (lh - [center_x, center_y]) / width
-        if results.right_hand_landmarks: rh = (rh - [center_x, center_y]) / width
 
-    # Flatten (33*2 + 21*2 + 21*2 = 150 inputs)
-    return np.concatenate([pose.flatten(), lh.flatten(), rh.flatten()])
+        shoulder_center = (left_shoulder + right_shoulder) / 2
+        shoulder_width = np.linalg.norm(
+            left_shoulder - right_shoulder
+        )
+
+        if shoulder_width < 1e-6:
+            shoulder_width = 1.0
+
+        pose = (pose - shoulder_center) / shoulder_width
+
+        if left_hand_detected:
+            lh = (lh - shoulder_center) / shoulder_width
+
+        if right_hand_detected:
+            rh = (rh - shoulder_center) / shoulder_width
+
+    features = np.concatenate([
+        pose.flatten(),
+        lh.flatten(),
+        rh.flatten()
+    ])
+
+    return features
 
 processed_count = 0
 
@@ -110,12 +153,21 @@ with mp_holistic.Holistic(min_detection_confidence=0.5, min_tracking_confidence=
         if len(frames) == 0: continue
         
         # Normalize to 30 frames
-        frames = np.array(frames)
+        frames = np.array(frames, dtype=np.float32)
+
         if len(frames) < SEQUENCE_LENGTH:
-            pad = np.zeros((SEQUENCE_LENGTH - len(frames), frames.shape[1]))
+            pad = np.zeros(
+                (SEQUENCE_LENGTH - len(frames), 225),
+                dtype=np.float32
+            )
             frames = np.concatenate([frames, pad])
+
         elif len(frames) > SEQUENCE_LENGTH:
             frames = frames[:SEQUENCE_LENGTH]
+
+        assert frames.shape == (30, 225), (
+            f"Unexpected sequence shape: {frames.shape}"
+        )
             
         np.save(save_path, frames)
         processed_count += 1
