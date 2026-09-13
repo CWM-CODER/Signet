@@ -66,7 +66,7 @@ try:
     print("Letter Model loaded!")
 
     class LSTMModel(nn.Module):
-        def __init__(self, input_size=150, hidden_size=64, num_layers=1, num_classes=10):
+        def __init__(self, input_size=225, hidden_size=64, num_layers=1, num_classes=10):
             super(LSTMModel, self).__init__()
             self.feature_extract = nn.Sequential(
                 nn.Linear(input_size, 128),
@@ -151,20 +151,78 @@ def are_hands_detected(results):
 
 
 def extract_keypoints(results):
-    pose = np.array([[res.x, res.y] for res in results.pose_landmarks.landmark]) if results.pose_landmarks else np.zeros((33, 2))
-    lh = np.array([[res.x, res.y] for res in results.left_hand_landmarks.landmark]) if results.left_hand_landmarks else np.zeros((21, 2))
-    rh = np.array([[res.x, res.y] for res in results.right_hand_landmarks.landmark]) if results.right_hand_landmarks else np.zeros((21, 2))
+    """
+    Extract 3D pose and hand landmarks.
 
+    Pose:
+        33 × 3 = 99 features
+
+    Left hand:
+        21 × 3 = 63 features
+
+    Right hand:
+        21 × 3 = 63 features
+
+    Total:
+        225 features per frame
+    """
+
+    pose = np.zeros((33, 3), dtype=np.float32)
+    lh = np.zeros((21, 3), dtype=np.float32)
+    rh = np.zeros((21, 3), dtype=np.float32)
+
+    pose_detected = False
+    left_hand_detected = False
+    right_hand_detected = False
+
+    # Extract 3D pose landmarks
     if results.pose_landmarks:
-        center = (pose[11] + pose[12]) / 2
-        width = np.linalg.norm(pose[11] - pose[12])
-        if width == 0: width = 1.0
+        pose_detected = True
 
-        pose = (pose - center) / width
-        if results.left_hand_landmarks: lh = (lh - center) / width
-        if results.right_hand_landmarks: rh = (rh - center) / width
+        for i, lm in enumerate(results.pose_landmarks.landmark):
+            pose[i] = [lm.x, lm.y, lm.z]
 
-    return np.concatenate([pose.flatten(), lh.flatten(), rh.flatten()])
+    # Extract 3D left-hand landmarks
+    if results.left_hand_landmarks:
+        left_hand_detected = True
+
+        for i, lm in enumerate(results.left_hand_landmarks.landmark):
+            lh[i] = [lm.x, lm.y, lm.z]
+
+    if results.right_hand_landmarks:
+        right_hand_detected = True
+
+        for i, lm in enumerate(results.right_hand_landmarks.landmark):
+            rh[i] = [lm.x, lm.y, lm.z]
+
+    if pose_detected:
+        left_shoulder = pose[11]
+        right_shoulder = pose[12]
+
+        shoulder_center = (left_shoulder + right_shoulder) / 2
+
+        shoulder_width = np.linalg.norm(
+            left_shoulder - right_shoulder
+        )
+
+        if shoulder_width < 1e-6:
+            shoulder_width = 1.0
+
+        pose = (pose - shoulder_center) / shoulder_width
+
+        if left_hand_detected:
+            lh = (lh - shoulder_center) / shoulder_width
+
+        if right_hand_detected:
+            rh = (rh - shoulder_center) / shoulder_width
+
+    features = np.concatenate([
+        pose.flatten(),
+        lh.flatten(),
+        rh.flatten()
+    ])
+
+    return features
 
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -266,12 +324,28 @@ def predict():
                     if frame_counter % SKIP_RATE == 0:
 
                         keypoints = extract_keypoints(results)
+
+                        assert keypoints.shape == (225,), (
+                            f"Unexpected keypoint shape: {keypoints.shape}"
+                        )
+
                         sequence.append(keypoints)
                         sequence = sequence[-30:]
 
                         if len(sequence) == 30:
-                            input_array = np.array([sequence])
-                            input_tensor = torch.tensor(input_array, dtype=torch.float32).to(device)
+                            input_array = np.array(
+                                [sequence],
+                                dtype=np.float32
+                            )
+
+                            assert input_array.shape == (1, 30, 225), (
+                                f"Unexpected input shape: {input_array.shape}"
+                            )
+
+                            input_tensor = torch.tensor(
+                                input_array,
+                                dtype=torch.float32
+                            ).to(device)
 
                             with torch.no_grad():
                                 res = word_model(input_tensor)
